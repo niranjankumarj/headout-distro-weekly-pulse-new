@@ -12,35 +12,126 @@ class ReportImageGenerator:
 
     def __init__(self):
 
-        self.width = 1400
-        self.padding = 60
-        self.line_height = 42
+        # --------------------------------------------------
+        # Layout
+        # --------------------------------------------------
 
-        # Maximum characters per Spotlight line
-        self.spotlight_wrap_width = 75
+        # Canvas width is now computed automatically from the
+        # longest rendered line (see generate()). This is just
+        # a safety ceiling so a single absurdly long line can't
+        # blow the image up.
+        self.max_width = 1600
 
-        # Try to use a standard Windows font
+        self.padding_x = 40
+        self.padding_y = 36
+        self.line_height = 34
+
+        # Maximum characters per Spotlight line (wrapping is
+        # character-based, independent of font size)
+        self.spotlight_wrap_width = 78
+
+        self.font, self.bold_font, self.title_font = self._load_fonts()
+
+    # --------------------------------------------------
+    # Font loading
+    # --------------------------------------------------
+    #
+    # Table columns in this report are aligned using fixed-width
+    # string formatting (f"{name:<18}..."), so the font MUST be
+    # monospaced or columns will visually drift out of alignment.
+    #
+    # We try, in order:
+    #   1. A font shipped inside this repo (most reliable —
+    #      identical on every machine, no install step needed)
+    #   2. Common Linux paths (GitHub Actions ubuntu-latest, if
+    #      `apt-get install fonts-dejavu-core` has been run)
+    #   3. Common Windows paths (local dev machine)
+    #   4. Common macOS paths
+    #   5. Pillow's built-in scalable font as an absolute last
+    #      resort (Pillow >= 10.1 supports a `size` argument here,
+    #      so even the fallback is legible instead of 10px tall —
+    #      but note it is NOT monospaced, so table columns will
+    #      lose alignment if this path is ever hit).
+
+    def _repo_font_dir(self):
+        return Path(__file__).resolve().parent / "fonts"
+
+    def _candidate_paths(self):
+
+        repo_fonts = self._repo_font_dir()
+
+        return {
+            "regular": [
+                repo_fonts / "DejaVuSansMono.ttf",
+                Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"),
+                Path("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"),
+                Path("C:/Windows/Fonts/consola.ttf"),
+                Path("/System/Library/Fonts/Menlo.ttc"),
+                Path("/Library/Fonts/Menlo.ttc"),
+            ],
+            "bold": [
+                repo_fonts / "DejaVuSansMono-Bold.ttf",
+                Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"),
+                Path("/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf"),
+                Path("C:/Windows/Fonts/consolab.ttf"),
+                Path("/System/Library/Fonts/Menlo.ttc"),
+                Path("/Library/Fonts/Menlo.ttc"),
+            ],
+        }
+
+    def _first_existing(self, paths):
+        for path in paths:
+            if Path(path).exists():
+                return str(path)
+        return None
+
+    def _load_fonts(self):
+
+        candidates = self._candidate_paths()
+
+        regular_path = self._first_existing(candidates["regular"])
+        bold_path = self._first_existing(candidates["bold"])
+
+        # Sizes: bumped up noticeably from the original (28/30/38)
+        body_size = 34
+        bold_size = 34
+        title_size = 46
+
+        if regular_path and bold_path:
+
+            font = ImageFont.truetype(regular_path, body_size)
+            bold_font = ImageFont.truetype(bold_path, bold_size)
+            title_font = ImageFont.truetype(bold_path, title_size)
+
+            return font, bold_font, title_font
+
+        # --------------------------------------------------
+        # Fallback: no monospace font found on this machine.
+        # Use Pillow's bundled scalable font so text is at least
+        # readable, and warn loudly so it gets noticed/fixed.
+        # --------------------------------------------------
+
+        print(
+            "\n⚠️  WARNING: No monospace font found (checked repo /fonts, "
+            "Linux, Windows, macOS paths). Falling back to Pillow's default "
+            "font. Table columns will NOT align correctly. Install a "
+            "monospace font (e.g. `apt-get install fonts-dejavu-core` in "
+            "CI) or add DejaVuSansMono.ttf / DejaVuSansMono-Bold.ttf to a "
+            "'fonts/' folder next to this script.\n"
+        )
+
         try:
-            self.font = ImageFont.truetype(
-                "C:/Windows/Fonts/consola.ttf",
-                28,
-            )
+            # Pillow >= 10.1 lets load_default take a size
+            font = ImageFont.load_default(size=body_size)
+            bold_font = ImageFont.load_default(size=bold_size)
+            title_font = ImageFont.load_default(size=title_size)
+        except TypeError:
+            # Older Pillow: no size support at all
+            font = ImageFont.load_default()
+            bold_font = font
+            title_font = font
 
-            self.bold_font = ImageFont.truetype(
-                "C:/Windows/Fonts/consolab.ttf",
-                30,
-            )
-
-            self.title_font = ImageFont.truetype(
-                "C:/Windows/Fonts/consolab.ttf",
-                38,
-            )
-
-        except OSError:
-
-            self.font = ImageFont.load_default()
-            self.bold_font = ImageFont.load_default()
-            self.title_font = ImageFont.load_default()
+        return font, bold_font, title_font
 
     # --------------------------------------------------
     # Clean Spotlight Text
@@ -91,20 +182,23 @@ class ReportImageGenerator:
         # --------------------------------------------------
 
         lines.append(
-            "DISTRO PARTNERSHIP WEEKLY PULSE"
+            ("title", "DISTRO PARTNERSHIP WEEKLY PULSE")
         )
 
-        lines.append("")
+        lines.append(("body", ""))
 
         lines.append(
-            f"Reporting Week: "
-            f"{report['week_start']:%d %b} - "
-            f"{report['week_end']:%d %b %Y}"
+            (
+                "body",
+                f"Reporting Week: "
+                f"{report['week_start']:%d %b} - "
+                f"{report['week_end']:%d %b %Y}",
+            )
         )
 
-        lines.append("")
-        lines.append("SPOTLIGHT")
-        lines.append("")
+        lines.append(("body", ""))
+        lines.append(("bold", "SPOTLIGHT"))
+        lines.append(("body", ""))
 
         # --------------------------------------------------
         # Spotlight
@@ -116,74 +210,79 @@ class ReportImageGenerator:
                 story_line
             )
 
-            lines.extend(
-                wrapped_lines
-            )
+            for wrapped in wrapped_lines:
+                lines.append(("body", wrapped))
 
-        lines.append("")
-        lines.append("-" * 70)
-        lines.append("")
+        lines.append(("body", ""))
+        lines.append(("body", "-" * 70))
+        lines.append(("body", ""))
 
         # --------------------------------------------------
         # Weekly Performance
         # --------------------------------------------------
 
-        lines.append(
-            "1. WEEKLY PERFORMANCE"
-        )
-
-        lines.append("")
+        lines.append(("bold", "1. WEEKLY PERFORMANCE"))
+        lines.append(("body", ""))
 
         lines.append(
-            f"{'Metric':<20}"
-            f"{'This Week':>12}"
-            f"{'WoW':>10}"
-            f"{'MoM':>10}"
-            f"{'YoY':>10}"
+            (
+                "body",
+                f"{'Metric':<20}"
+                f"{'This Week':>12}"
+                f"{'WoW':>10}"
+                f"{'MoM':>10}"
+                f"{'YoY':>10}",
+            )
         )
 
-        lines.append("-" * 62)
+        lines.append(("body", "-" * 62))
 
         for name, metric in report["weekly"].items():
 
             lines.append(
-                f"{name:<20}"
-                f"{format_number(metric.current):>12}"
-                f"{format_percent(metric.growth):>10}"
-                f"{format_percent(metric.mom):>10}"
-                f"{format_percent(metric.yoy):>10}"
+                (
+                    "body",
+                    f"{name:<20}"
+                    f"{format_number(metric.current):>12}"
+                    f"{format_percent(metric.growth):>10}"
+                    f"{format_percent(metric.mom):>10}"
+                    f"{format_percent(metric.yoy):>10}",
+                )
             )
 
-        lines.append("")
-        lines.append("-" * 70)
-        lines.append("")
+        lines.append(("body", ""))
+        lines.append(("body", "-" * 70))
+        lines.append(("body", ""))
 
         # --------------------------------------------------
         # MTD Performance
         # --------------------------------------------------
 
-        lines.append(
-            "2. MTD PERFORMANCE"
-        )
-
-        lines.append("")
+        lines.append(("bold", "2. MTD PERFORMANCE"))
+        lines.append(("body", ""))
 
         lines.append(
-            f"{'Metric':<20}"
-            f"{'MTD':>12}"
-            f"{'MoM':>10}"
-            f"{'YoY':>10}"
+            (
+                "body",
+                f"{'Metric':<20}"
+                f"{'MTD':>12}"
+                f"{'MoM':>10}"
+                f"{'YoY':>10}",
+            )
         )
 
-        lines.append("-" * 52)
+        lines.append(("body", "-" * 52))
 
         for name, metric in report["mtd"].items():
 
             lines.append(
-                f"{name:<20}"
-                f"{format_number(metric.current):>12}"
-                f"{format_percent(metric.growth):>10}"
-                f"{format_percent(metric.yoy):>10}"
+                (
+                    "body",
+                    f"{name:<20}"
+                    f"{format_number(metric.current):>12}"
+                    f"{format_percent(metric.growth):>10}"
+                    f"{format_percent(metric.yoy):>10}",
+                )
             )
 
         # --------------------------------------------------
@@ -198,14 +297,60 @@ class ReportImageGenerator:
             else 0
         )
 
-        lines.append("")
+        lines.append(("body", ""))
 
         lines.append(
-            f"Projected Target Achievement: "
-            f"{achievement:.0f}%"
+            (
+                "bold",
+                f"Projected Target Achievement: "
+                f"{achievement:.0f}%",
+            )
         )
 
         return lines
+
+    # --------------------------------------------------
+    # Font lookup helper
+    # --------------------------------------------------
+
+    def _font_for(self, style):
+
+        if style == "title":
+            return self.title_font
+
+        if style == "bold":
+            return self.bold_font
+
+        return self.font
+
+    # --------------------------------------------------
+    # Measure required canvas width
+    # --------------------------------------------------
+
+    def _measure_width(self, lines):
+
+        # Use a throwaway 1x1 image purely to get a drawing
+        # context capable of measuring text extents.
+        probe = Image.new("RGB", (1, 1))
+        draw = ImageDraw.Draw(probe)
+
+        max_line_width = 0
+
+        for style, text in lines:
+
+            if not text:
+                continue
+
+            font = self._font_for(style)
+
+            bbox = draw.textbbox((0, 0), text, font=font)
+            line_width = bbox[2] - bbox[0]
+
+            max_line_width = max(max_line_width, line_width)
+
+        width = max_line_width + (self.padding_x * 2)
+
+        return min(width, self.max_width)
 
     # --------------------------------------------------
     # Generate PNG
@@ -221,19 +366,16 @@ class ReportImageGenerator:
             report
         )
 
-        # Image height automatically increases
-        # if Spotlight text wraps onto additional lines
+        width = self._measure_width(lines)
+
         height = (
             len(lines) * self.line_height
-            + (self.padding * 2)
+            + (self.padding_y * 2)
         )
 
         image = Image.new(
             "RGB",
-            (
-                self.width,
-                height,
-            ),
+            (width, height),
             "white",
         )
 
@@ -241,32 +383,18 @@ class ReportImageGenerator:
             image
         )
 
-        y = self.padding
+        y = self.padding_y
 
-        for index, line in enumerate(lines):
+        for style, text in lines:
 
-            font = self.font
-
-            # Main title
-            if index == 0:
-
-                font = self.title_font
-
-            # Section headings
-            elif line in [
-                "SPOTLIGHT",
-                "1. WEEKLY PERFORMANCE",
-                "2. MTD PERFORMANCE",
-            ]:
-
-                font = self.bold_font
+            font = self._font_for(style)
 
             draw.text(
                 (
-                    self.padding,
+                    self.padding_x,
                     y,
                 ),
-                line,
+                text,
                 fill="black",
                 font=font,
             )
@@ -295,7 +423,7 @@ class ReportImageGenerator:
         )
 
         print(
-            f"\n✓ Report image generated: {output}"
+            f"\n✓ Report image generated: {output} ({width}x{height})"
         )
 
         return str(
