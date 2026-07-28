@@ -42,6 +42,24 @@ class OmniClient:
             json=body,
         )
 
+        # --------------------------------------------------
+        # Debug Output
+        # --------------------------------------------------
+
+        if not response.ok:
+
+            print("\n" + "=" * 60)
+            print("OMNI API ERROR")
+            print("=" * 60)
+            print(f"URL: {url}")
+            print(f"Dashboard ID: {dashboard_id}")
+            print(f"Status Code: {response.status_code}")
+            print("Response Headers:")
+            print(dict(response.headers))
+            print("Response Body:")
+            print(response.text)
+            print("=" * 60 + "\n")
+
         response.raise_for_status()
 
         return response.json()["job_id"]
