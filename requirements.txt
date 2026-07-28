@@ -1,0 +1,7 @@
+requests
+pandas
+python-dotenv
+openpyxl
+slack_sdk
+gspread
+google-auth
