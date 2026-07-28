@@ -57,6 +57,12 @@ def main():
     print("DISTRO PARTNERSHIP WEEKLY PULSE")
     print("=" * 60)
 
+    from config import OMNI_API_TOKEN
+
+    print(f"Omni Token Loaded: {OMNI_API_TOKEN is not None}")
+    print(f"Token Length: {len(OMNI_API_TOKEN) if OMNI_API_TOKEN else 0}")
+    print("=" * 60)
+
     # --------------------------------------------------
     # Download latest dashboards
     # --------------------------------------------------
