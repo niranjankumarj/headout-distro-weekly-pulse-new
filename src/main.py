@@ -235,7 +235,7 @@ def main():
     # --------------------------------------------------
 
     goal = GoalEngine(
-        r"C:\Users\DELL\Desktop\disto-weekly-pulse-new\headout-distro-weekly-pulse-new\H2 Goal Tracker - Distro - Sheet1.csv"
+        "H2 Goal Tracker - Distro - Sheet1.csv"
     ).goal(
         mtd_end
     )
